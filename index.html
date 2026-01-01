@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ナンプレ（ランキング機能付き）</title>
+    <style>
+        /* === ページ全体のスタイル調整（アプリ単体用） === */
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: #111827; /* 背景色をアプリに合わせる */
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        /* === アプリ本体のスタイル === */
+        .sudoku-wrapper {
+            width: 100%;
+            max-width: 500px;
+            margin: 0 auto;
+            background-color: #1f2937; /* コンテナの背景色 */
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);
+            overflow: hidden;
+            padding: 1.5rem;
+            box-sizing: border-box;
+        }
+        .sudoku-wrapper * { box-sizing: border-box; }
+
+        /* タイトル・ヘッダー */
+        .sudoku-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            text-align: center;
+            margin: 0 0 1rem 0;
+            color: #ffffff;
+        }
+
+        /* ボタン共通 */
+        .sudoku-btn {
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            color: white;
+            transition: opacity 0.2s;
+            font-size: 0.875rem;
+        }
+        .sudoku-btn:hover { opacity: 0.9; }
+        .sudoku-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .btn-easy { background-color: #16a34a; }
+        .btn-normal { background-color: #2563eb; }
+        .btn-hard { background-color: #dc2626; }
+        .btn-action { background-color: #4f46e5; margin-top: 1rem; }
+        .btn-next { background-color: #059669; width: 100%; margin-top: 0.5rem; }
+        .btn-submit { background-color: #e11d48; width: 100%; margin-top: 0.5rem; }
+        .btn-close { background-color: #4b5563; width: 100%; margin-top: 0.5rem; }
+        .btn-retry { background-color: #d97706; width: 100%; margin-top: 0.5rem; }
+
+        /* 難易度タブ */
+        .difficulty-selector {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .difficulty-selector button {
+            flex: 1;
+            border: 2px solid transparent;
+        }
+        .difficulty-selector button.active {
+            border-color: white;
+            box-shadow: 0 0 0 2px rgba(255,255,255,0.3);
+        }
+
+        /* ステータスエリア（タイマー・ミス） */
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            padding: 0 0.5rem;
+            font-family: monospace;
+            font-size: 1.125rem;
+        }
+        .timer-display { color: #facc15; }
+        .mistakes-display { color: #f87171; font-weight: bold; }
+        .mistake-warn { animation: shake 0.5s; }
+
+        @keyframes shake {
+            0% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            50% { transform: translateX(5px); }
+            75% { transform: translateX(-5px); }
+            100% { transform: translateX(0); }
+        }
+
+        /* 盤面 */
+        .sudoku-grid {
+            display: grid;
+            grid-template-columns: repeat(9, 1fr);
+            gap: 0;
+            background-color: #1f2937;
+            border: 2px solid #6b7280;
+            border-radius: 0.25rem;
+            margin: 0 auto 1rem auto;
+            max-width: 400px;
+            height: auto;
+        }
+
+        .sudoku-cell {
+            width: 100%;
+            aspect-ratio: 1/1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            font-weight: 700;
+            border: 1px solid #374151;
+            cursor: pointer;
+            user-select: none;
+            background-color: transparent;
+            color: #ffffff;
+            line-height: 1;
+            overflow: hidden;
+            padding: 0;
+        }
+        @media (min-width: 400px) { .sudoku-cell { font-size: 1.5rem; } }
+        .sudoku-cell:hover { background-color: #374151; }
+
+        /* 枠線強調 */
+        .sudoku-cell:nth-child(9n+3), .sudoku-cell:nth-child(9n+6) { border-right: 2px solid #9ca3af; }
+        .sudoku-cell:nth-child(n+19):nth-child(-n+27), .sudoku-cell:nth-child(n+46):nth-child(-n+54) { border-bottom: 2px solid #9ca3af; }
+        .sudoku-cell:nth-child(9n+9) { border-right: 1px solid #374151; }
+        .sudoku-cell:nth-child(n+73):nth-child(-n+81) { border-bottom: 1px solid #374151; }
+
+        /* セル状態 */
+        .cell-selected { background-color: #3b82f6 !important; color: white !important; }
+        .cell-highlight { background-color: #374151 !important; }
+        .cell-prefilled { color: #d1d5db; }
+        .cell-userfilled { color: #67e8f9; }
+        .cell-error { background-color: #ef4444 !important; color: white !important; }
+
+        /* テンキー */
+        .numpad {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 0.5rem;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        .num-btn {
+            aspect-ratio: 1/1;
+            background-color: #374151;
+            color: white;
+            font-size: 1.25rem;
+            font-weight: 700;
+            border: 1px solid #4b5563; /* 視認性向上のため枠線追加 */
+            border-radius: 0.25rem;
+            cursor: pointer;
+        }
+        .num-btn:hover { background-color: #4b5563; }
+        .btn-delete { background-color: #991b1b; font-size: 0.875rem; }
+
+        /* アクション */
+        .action-area { text-align: center; }
+
+        /* === ランキングエリア === */
+        .ranking-section {
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid #374151;
+        }
+        .ranking-title {
+            font-size: 1.1rem;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 0.5rem;
+            color: #fbbf24;
+        }
+        .ranking-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            font-size: 0.9rem;
+        }
+        .ranking-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem;
+            border-bottom: 1px solid #374151;
+        }
+        .ranking-item:nth-child(1) { color: #fbbf24; font-weight: bold; } /* 金 */
+        .ranking-item:nth-child(2) { color: #9ca3af; font-weight: bold; } /* 銀 */
+        .ranking-item:nth-child(3) { color: #b45309; font-weight: bold; } /* 銅 */
+        .rank-name { flex: 1; text-align: left; padding-left: 0.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .rank-time { width: 60px; text-align: right; font-family: monospace; }
+        .no-rank-data { text-align: center; color: #6b7280; padding: 1rem; }
+        .config-alert { color: #f87171; text-align: center; padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: 0.5rem; margin: 1rem 0; font-size: 0.9rem; }
+
+        /* モーダル系 */
+        .modal-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+            backdrop-filter: blur(2px);
+            border-radius: 0.75rem;
+            padding: 1rem;
+        }
+        .modal-content {
+            background-color: #1f2937;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            text-align: center;
+            max-width: 300px;
+            width: 100%;
+            border: 1px solid #4b5563;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        .modal-title { font-size: 1.5rem; margin: 0 0 0.5rem 0; color: white; }
+        .modal-msg { color: #d1d5db; margin-bottom: 1.5rem; }
+        
+        .name-input {
+            width: 100%;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            border-radius: 0.25rem;
+            border: 1px solid #4b5563;
+            background-color: #374151;
+            color: white;
+            font-size: 1rem;
+            text-align: center;
+        }
+
+        .loading-overlay {
+            position: absolute; inset: 0;
+            background-color: rgba(17, 24, 39, 0.8);
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 40; color: white;
+            border-radius: 0.75rem;
+        }
+        .spinner {
+            border: 4px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top: 4px solid #3b82f6;
+            width: 40px; height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        [v-cloak] { display: none; }
+        .relative { position: relative; width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+
+    <div id="sudoku-app-wrapper" class="sudoku-wrapper">
+        <div id="app" v-cloak class="relative">
+
+            <h2 class="sudoku-title">数独 (ナンプレ)</h2>
+
+            <!-- 難易度選択 -->
+            <div class="difficulty-selector">
+                <button @click="startGame('easy')" class="sudoku-btn btn-easy" :class="{ active: currentDifficulty === 'easy' }">簡単</button>
+                <button @click="startGame('normal')" class="sudoku-btn btn-normal" :class="{ active: currentDifficulty === 'normal' }">普通</button>
+                <button @click="startGame('hard')" class="sudoku-btn btn-hard" :class="{ active: currentDifficulty === 'hard' }">難しい</button>
+            </div>
+
+            <!-- ステータスバー（タイマー・ミス回数） -->
+            <div class="status-bar">
+                <div class="timer-display">
+                    <span v-if="timer.isRunning">経過時間: {{ timer.formattedTime }}</span>
+                    <span v-else-if="!isLoading && !modal.show">準備完了</span>
+                </div>
+                <div class="mistakes-display" :class="{ 'mistake-warn': mistakes > 0 }">
+                    ミス: {{ mistakes }} / 3
+                </div>
+            </div>
+
+            <!-- グリッド -->
+            <div class="sudoku-grid">
+                <template v-for="index in 81" :key="index">
+                    <div 
+                        class="sudoku-cell"
+                        :class="getCellClasses(Math.floor((index - 1) / 9), (index - 1) % 9)"
+                        @click="selectCell(Math.floor((index - 1) / 9), (index - 1) % 9)"
+                    >
+                        {{ getCellDisplay(Math.floor((index - 1) / 9), (index - 1) % 9) }}
+                    </div>
+                </template>
+            </div>
+            
+            <!-- 入力パッド -->
+            <div class="numpad">
+                <template v-for="num in 9" :key="num">
+                    <button @click="inputNumber(num)" class="num-btn">{{ num }}</button>
+                </template>
+                <button @click="inputNumber(0)" class="num-btn btn-delete">消す</button>
+            </div>
+            
+            <!-- アクション -->
+            <div class="action-area">
+                <button @click="showSolution" class="sudoku-btn btn-action">答えを見る</button>
+            </div>
+
+            <!-- ランキング表示エリア -->
+            <div class="ranking-section">
+                <div class="ranking-title">🏆 {{ getDifficultyLabel(currentDifficulty) }} ランキング TOP10</div>
+                
+                <div v-if="!isConfigured" class="config-alert">
+                    <strong>【設定が必要です】</strong><br>
+                    Firebaseの設定が行われていません。<br>HTMLコード内の「firebaseConfig」をあなたの設定値に書き換えてください。
+                </div>
+                <div v-else-if="rankingLoading" style="text-align: center; color: #9ca3af;">読み込み中...</div>
+                
+                <ul v-else-if="rankings.length > 0" class="ranking-list">
+                    <li v-for="(rank, index) in rankings" :key="index" class="ranking-item">
+                        <span style="width: 24px;">{{ index + 1 }}.</span>
+                        <span class="rank-name">{{ rank.name }}</span>
+                        <span class="rank-time">{{ formatTime(rank.time) }}</span>
+                    </li>
+                </ul>
+                
+                <div v-else class="no-rank-data">
+                    まだ記録がありません。<br>最初のランクインを目指そう！
+                </div>
+            </div>
+
+            <!-- ローディング -->
+            <div v-if="isLoading" class="loading-overlay">
+                <div class="spinner"></div>
+                <p>問題を作成中...</p>
+            </div>
+
+            <!-- モーダル（結果・ゲームオーバー） -->
+            <div v-if="modal.show" class="modal-overlay">
+                <div class="modal-content">
+                    <h3 class="modal-title" :style="{ color: modal.isGameOver ? '#ef4444' : 'white' }">
+                        {{ modal.title }}
+                    </h3>
+                    <p class="modal-msg" v-html="modal.message"></p>
+                    
+                    <!-- ランクイン時の名前入力 -->
+                    <div v-if="modal.isRankIn && !modal.isGameOver">
+                        <input type="text" v-model="playerName" placeholder="名前を入力 (最大8文字)" maxlength="8" class="name-input">
+                        <button @click="submitRank" class="sudoku-btn btn-submit" :disabled="isSubmitting || !playerName">
+                            {{ isSubmitting ? '送信中...' : 'ランキングに登録' }}
+                        </button>
+                    </div>
+                    
+                    <!-- ボタン類 -->
+                    <div v-if="!modal.isRankIn || isSubmitted || modal.isGameOver">
+                        <!-- ゲームオーバーならリトライ、クリアなら次へ -->
+                        <button @click="startGame(currentDifficulty)" class="sudoku-btn" :class="modal.isGameOver ? 'btn-retry' : 'btn-next'">
+                            {{ modal.isGameOver ? 'もう一度挑戦' : '同じ難易度で次へ' }}
+                        </button>
+                        <button @click="modal.show = false" class="sudoku-btn btn-close">閉じる</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- スクリプト -->
+    <script type="module">
+        import { createApp } from 'https://unpkg.com/petite-vue?module';
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
+        import { getFirestore, collection, query, where, orderBy, limit, getDocs, addDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
+
+        // --- ★★★ Firebase設定（GitHubに上げる際はここを元の値に戻してください） ★★★ ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyDZ2PeXLRfbhP3HFVfzKwStJgDbf0MyOWc",
+            authDomain: "masakilabo-sudoku.firebaseapp.com",
+            projectId: "masakilabo-sudoku",
+            storageBucket: "masakilabo-sudoku.firebasestorage.app",
+            messagingSenderId: "1005343321512",
+            appId: "1:1005343321512:web:c113d770b368a629d9419d"
+        };
+        // -----------------------------------------------------------------------
+
+        let db;
+        // 設定値が書き換えられているか簡易チェック
+        const isConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY" && firebaseConfig.projectId !== "YOUR_PROJECT_ID";
+
+        if (isConfigured) {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+            } catch (e) {
+                console.error("Firebase init error:", e);
+            }
+        }
+
+        const SudokuGenerator = {
+            getShuffledArray() {
+                const array = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+                for (let i = array.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [array[i], array[j]] = [array[j], array[i]];
+                }
+                return array;
+            },
+            isValid(board, row, col, num) {
+                for (let x = 0; x < 9; x++) {
+                    if (board[row][x] === num || board[x][col] === num) return false;
+                }
+                const startRow = Math.floor(row / 3) * 3;
+                const startCol = Math.floor(col / 3) * 3;
+                for (let i = 0; i < 3; i++) {
+                    for (let j = 0; j < 3; j++) {
+                        if (board[startRow + i][startCol + j] === num) return false;
+                    }
+                }
+                return true;
+            },
+            fillBoard(board) {
+                for (let row = 0; row < 9; row++) {
+                    for (let col = 0; col < 9; col++) {
+                        if (board[row][col] === 0) {
+                            const nums = this.getShuffledArray();
+                            for (let num of nums) {
+                                if (this.isValid(board, row, col, num)) {
+                                    board[row][col] = num;
+                                    if (this.fillBoard(board)) return true;
+                                    board[row][col] = 0;
+                                }
+                            }
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            },
+            countSolutions(board, limit = 2) {
+                let count = 0;
+                const solve = (brd) => {
+                    for (let r = 0; r < 9; r++) {
+                        for (let c = 0; c < 9; c++) {
+                            if (brd[r][c] === 0) {
+                                for (let n = 1; n <= 9; n++) {
+                                    if (this.isValid(brd, r, c, n)) {
+                                        brd[r][c] = n;
+                                        if (solve(brd)) { if (count >= limit) return true; }
+                                        brd[r][c] = 0;
+                                    }
+                                }
+                                return false;
+                            }
+                        }
+                    }
+                    count++;
+                    return true;
+                };
+                solve(board);
+                return count;
+            },
+            generate(difficulty) {
+                const solved = Array.from({ length: 9 }, () => Array(9).fill(0));
+                this.fillBoard(solved);
+                let attempts = difficulty === 'easy' ? 30 : (difficulty === 'normal' ? 45 : 58);
+                const puzzle = JSON.parse(JSON.stringify(solved));
+                while (attempts > 0) {
+                    let row = Math.floor(Math.random() * 9);
+                    let col = Math.floor(Math.random() * 9);
+                    while (puzzle[row][col] === 0) {
+                        row = Math.floor(Math.random() * 9);
+                        col = Math.floor(Math.random() * 9);
+                    }
+                    const backup = puzzle[row][col];
+                    puzzle[row][col] = 0;
+                    const solutions = this.countSolutions(JSON.parse(JSON.stringify(puzzle)));
+                    if (solutions !== 1) { puzzle[row][col] = backup; }
+                    attempts--;
+                }
+                return { solved, puzzle };
+            }
+        };
+
+        const createEmptyBoard = () => Array.from({ length: 9 }, () => Array(9).fill(0));
+
+        createApp({
+            originalBoard: createEmptyBoard(),
+            currentBoard: createEmptyBoard(),
+            solvedBoard: createEmptyBoard(),
+            errors: Array.from({ length: 9 }, () => Array(9).fill(false)),
+            selectedCell: null,
+            timer: { isRunning: false, intervalId: null, timeElapsed: 0, formattedTime: "0:00" },
+            mistakes: 0,
+            maxMistakes: 3,
+            modal: { show: false, title: "", message: "", isRankIn: false, isGameOver: false },
+            isLoading: false,
+            currentDifficulty: 'easy',
+            
+            rankings: [],
+            rankingLoading: false,
+            playerName: "",
+            isSubmitting: false,
+            isSubmitted: false,
+            clearTime: 0,
+            isConfigured: isConfigured,
+
+            mounted() {
+                this.startGame('easy');
+            },
+
+            async startGame(difficulty) {
+                this.currentDifficulty = difficulty;
+                this.stopTimer();
+                this.isLoading = true;
+                this.modal.show = false;
+                this.selectedCell = null;
+                this.fetchRankings(difficulty);
+
+                setTimeout(() => {
+                    try {
+                        const data = SudokuGenerator.generate(difficulty);
+                        this.solvedBoard = data.solved;
+                        this.originalBoard = JSON.parse(JSON.stringify(data.puzzle));
+                        this.currentBoard = JSON.parse(JSON.stringify(data.puzzle));
+                        this.errors = Array.from({ length: 9 }, () => Array(9).fill(false));
+                        this.mistakes = 0; 
+                        this.startTimer();
+                    } catch (e) {
+                        console.error(e);
+                    } finally {
+                        this.isLoading = false;
+                    }
+                }, 50);
+            },
+
+            async fetchRankings(difficulty) {
+                if (!db || !this.isConfigured) return;
+                this.rankingLoading = true;
+                this.rankings = [];
+                try {
+                    const q = query(
+                        collection(db, "sudoku_scores"),
+                        where("difficulty", "==", difficulty),
+                        orderBy("time", "asc"),
+                        limit(10)
+                    );
+                    const querySnapshot = await getDocs(q);
+                    this.rankings = querySnapshot.docs.map(doc => doc.data());
+                } catch (e) {
+                    console.error("Error fetching rankings: ", e);
+                } finally {
+                    this.rankingLoading = false;
+                }
+            },
+
+            async checkRankIn() {
+                if (!db || !this.isConfigured) {
+                    this.showModal("クリア！", "おめでとうございます！");
+                    return;
+                }
+                const scoreTime = this.timer.timeElapsed;
+                this.clearTime = scoreTime;
+
+                let isRankIn = false;
+                if (this.rankings.length < 10) {
+                    isRankIn = true;
+                } else {
+                    const worstTime = this.rankings[this.rankings.length - 1].time;
+                    if (scoreTime < worstTime) isRankIn = true;
+                }
+
+                this.playerName = "";
+                this.isSubmitted = false;
+                
+                if (isRankIn) {
+                    this.modal.isRankIn = true;
+                    this.showModal("ランクイン！", `記録: <strong>${this.formatTime(scoreTime)}</strong><br>TOP10入りです！名前を入力して記録を残しましょう。`);
+                } else {
+                    this.modal.isRankIn = false;
+                    this.showModal("クリア！", `記録: <strong>${this.formatTime(scoreTime)}</strong><br>おめでとうございます！`);
+                }
+            },
+
+            async submitRank() {
+                if (!this.playerName || !db) return;
+                this.isSubmitting = true;
+                try {
+                    await addDoc(collection(db, "sudoku_scores"), {
+                        name: this.playerName,
+                        time: this.clearTime,
+                        difficulty: this.currentDifficulty,
+                        createdAt: serverTimestamp()
+                    });
+                    this.isSubmitted = true;
+                    this.modal.isRankIn = false;
+                    this.modal.message = "ランキングに登録されました！";
+                    this.fetchRankings(this.currentDifficulty);
+                } catch (e) {
+                    console.error("Error adding document: ", e);
+                } finally {
+                    this.isSubmitting = false;
+                }
+            },
+
+            startTimer() {
+                this.stopTimer();
+                this.timer.timeElapsed = 0;
+                this.timer.isRunning = true;
+                this.updateTimerDisplay();
+
+                this.timer.intervalId = setInterval(() => {
+                    this.timer.timeElapsed++;
+                    this.updateTimerDisplay();
+                }, 1000);
+            },
+            stopTimer() {
+                if (this.timer.intervalId) { clearInterval(this.timer.intervalId); this.timer.intervalId = null; }
+                this.timer.isRunning = false;
+            },
+            updateTimerDisplay() {
+                this.timer.formattedTime = this.formatTime(this.timer.timeElapsed);
+            },
+            formatTime(seconds) {
+                const m = Math.floor(seconds / 60);
+                const s = seconds % 60;
+                return `${m}:${s.toString().padStart(2, '0')}`;
+            },
+            
+            selectCell(r, c) {
+                if (this.originalBoard[r][c] !== 0) { this.selectedCell = null; return; }
+                this.selectedCell = { r, c };
+            },
+            inputNumber(num) {
+                if (!this.selectedCell || this.modal.show) return; 
+                const { r, c } = this.selectedCell;
+
+                if (num === 0) {
+                    this.currentBoard[r][c] = 0;
+                    this.errors[r][c] = false;
+                    return;
+                }
+
+                this.currentBoard[r][c] = num;
+                
+                if (num !== this.solvedBoard[r][c]) {
+                    this.errors[r][c] = true;
+                    this.mistakes++;
+                    if (this.mistakes >= this.maxMistakes) {
+                        this.gameOver("ゲームオーバー<br>3回間違えました。");
+                    }
+                } else {
+                    this.errors[r][c] = false;
+                    this.checkWinCondition();
+                }
+            },
+            gameOver(msg) {
+                this.stopTimer();
+                this.modal.isGameOver = true;
+                this.modal.isRankIn = false;
+                this.showModal("残念...", msg);
+            },
+            checkWinCondition() {
+                let isComplete = true;
+                for (let r = 0; r < 9; r++) {
+                    for (let c = 0; c < 9; c++) {
+                        if (this.currentBoard[r][c] === 0 || this.errors[r][c]) {
+                            isComplete = false;
+                        }
+                    }
+                }
+                if (isComplete) {
+                    this.stopTimer();
+                    this.checkRankIn();
+                    this.selectedCell = null;
+                }
+            },
+            showSolution() {
+                this.stopTimer();
+                this.currentBoard = JSON.parse(JSON.stringify(this.solvedBoard));
+                this.errors = Array.from({ length: 9 }, () => Array(9).fill(false));
+                this.selectedCell = null;
+            },
+            showModal(title, message) {
+                this.modal.title = title;
+                this.modal.message = message;
+                this.modal.show = true;
+                if (title !== "残念...") this.modal.isGameOver = false;
+            },
+            getDifficultyLabel(d) {
+                return d === 'easy' ? '簡単' : (d === 'normal' ? '普通' : '難しい');
+            },
+            getCellDisplay(r, c) {
+                if (!this.currentBoard || !this.currentBoard[r]) return '';
+                return this.currentBoard[r][c] === 0 ? '' : this.currentBoard[r][c];
+            },
+            getCellClasses(r, c) {
+                const classes = {};
+                if (!this.originalBoard || !this.originalBoard[r]) return classes;
+                if (this.originalBoard[r][c] !== 0) classes['cell-prefilled'] = true;
+                else {
+                    classes['cell-userfilled'] = true;
+                    if (this.errors[r][c]) classes['cell-error'] = true;
+                }
+                if (this.selectedCell) {
+                    const { r: sr, c: sc } = this.selectedCell;
+                    if (sr === r && sc === c) classes['cell-selected'] = true;
+                    else if (sr === r || sc === c || (Math.floor(r/3)===Math.floor(sr/3) && Math.floor(c/3)===Math.floor(sc/3))) classes['cell-highlight'] = true;
+                }
+                return classes;
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html>
